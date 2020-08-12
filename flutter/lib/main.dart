@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_state_notifier/flutter_state_notifier.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:state_notifier/state_notifier.dart';
 
@@ -47,6 +50,22 @@ class Task {
       content: content ?? this.content,
     );
   }
+
+  factory Task.fromJson(Map<String, dynamic> json) {
+    return Task(
+      id: json['id'],
+      title: json['title'],
+      content: json['content'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'content': content,
+    };
+  }
 }
 
 @immutable
@@ -87,14 +106,31 @@ class NewTaskNotifier extends StateNotifier<Task> {
     state = state.copyWith(content: content);
   }
 
-  Task enterTask() {
-    // TODO: API登録
-    return state;
+  Future<Task> enterTask() async {
+    final response = await http.post(
+      "http://localhost:8080/tasks",
+      body: json.encode(state.toJson()),
+    );
+    final body = json.decode(response.body);
+    return Task.fromJson(body);
   }
 }
 
 class TaskNotifier extends StateNotifier<TaskState> {
-  TaskNotifier() : super(TaskState.initialize());
+  TaskNotifier() : super(TaskState.initialize()) {
+    fetchTask();
+  }
+
+  Future<void> fetchTask() async {
+    final response = await http.get("http://localhost:8080/tasks");
+    final body = json.decode(response.body);
+    final list = body['task_list'] as List<dynamic>;
+    final tasks = list?.map((json) {
+      return Task.fromJson(json);
+    })?.toList();
+
+    state = state.copyWith(todoList: tasks ?? []);
+  }
 
   void add(Task task) {
     final id = state.taskList.length + 1;
@@ -178,8 +214,9 @@ class AddTaskDialog extends StatelessWidget {
                   padding: const EdgeInsets.all(8.0),
                   child: Text('登録'),
                 ),
-                onPressed: () {
-                  final task = context.read<NewTaskNotifier>().enterTask();
+                onPressed: () async {
+                  final task =
+                      await context.read<NewTaskNotifier>().enterTask();
                   onTapTask(task);
                   Navigator.of(context).pop();
                 },
@@ -210,9 +247,9 @@ class TaskListView extends StatelessWidget {
                 itemBuilder: (context, index) => ListTile(
                   title: Text(state.taskList[index].title),
                   subtitle: Text(state.taskList[index].content),
-                  onTap: () => context.read<TaskNotifier>().select(
-                        state.taskList[index].id,
-                      ),
+                  onTap: () => context
+                      .read<TaskNotifier>()
+                      .select(state.taskList[index].id),
                 ),
               ),
             ),
